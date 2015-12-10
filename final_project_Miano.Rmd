@@ -1,0 +1,538 @@
+---
+title: "EPID 600 Project Template"
+author: "Todd Miano"
+output: html_document
+---
+
+### Overview
+
+My project is focused on prevention of venous thromboembolism (blood clots) in patients after traumatic injury. Trauma patients are at very high risk of developing VTE, with rates ranging from 20-50% in the absence of prophylaxis. Low molecular weight heparin anticoagulants are use to prevent VTE in this population and are effective when given appropriately. However, studies have shown that many trauma patients receive delayed and/or inconsistent administration of prophylaxis. Failure to administer effective prophylaxis may substantially increase VTE risk. Thus, the aim of my project is to examine the association between prophylaxis patterns and VTE risk. I will conduct the project in a cohort of adult trauma patients admitted to the Hospital of the University of Pennsylvania from 2004 to 2014. I have previously constructed this cohort for other research projects. I obtained data on these patients from two sources: 1) the HUP trauma registry; and 2) Penn Data Store, a Penn supported data warehouse. I met with the following faculty members to discuss my project:  1. Robert Gross, MD, MSCE- expert in pharmacoepidemiology and medication adherence;  2. Doug Cines, MD- expert in hematology and venous thrombosis;  3. Sean Hennessy, PharmD, PhD- expert in pharmacoepidemiology and the use of electronic health record data to study drug effects.
+
+I discussed the conceptual framework for thinking about missed doses in my study population with Dr. Gross. In addition, we discussed several different metrics for quantifying missed doses. In particular, he suggested that examining the "longest gap between doses"--detailed below, might be of particular relevance given the pharmacodynamics of enoxaparin anticoagulation. I discussed the dynamics of clot propagation in trauma patients with Dr. Cines. He suggested that the "gap" between doses should not start until >= 24 hours has elapsed between doses, given the half life of enoxaparin. Lastly, Dr. Hennessy highlighted the time course of VTE occurence in this population and advised me to incorporate study methods to ensure that patients with prevalent (i.e. pre-existing at the time of admission) VTE events are not included in the study population (detailed below in the methods section.)
+
+#####Link to github repository
+[Final_project_miano](https://github.com/tmiano81/final_project)
+
+
+### Introduction 
+Traumatic injury is a major public health problem. It accounts for more than 180,000 deaths, 2.5 million hospitalizations, and $406 billion in medical care and lost productivity each year (1). Importantly, much of the burden associated with trauma occurs well after the acute event. Venous thromboembolism (VTE) is the 4th most common complication in trauma patients (2), representing a major source of preventable morbidity and mortality. In patients who survive the initial 24 hours after injury, pulmonary embolism (PE) is the 3rd leading cause of death (3). Thus, providing effective VTE prophylaxis continues to be a major priority in this population. National guidelines recommend low molecular weight heparin (LMWH) as the first line agent for pharmacologic prophylaxis after traumatic injury (4,5). Despite standard LMWH prophylaxis regimens, VTE remains common, with an incidence ranging from 6-15% (6,7) If VTE rates are to be reduced, we must gain a better understanding of the reasons for LMWH failure in this cohort. Importantly, administration of prophylaxis is frequently delayed or interrupted in this population, as the result of bleeding concerns, the need for surgical intervention, patient refusal, and inadequate risk stratification. Although treatment interuptions may increase VTE risk, the burden of VTE due to this potential risk factor is unclear.
+
+**Therefore, the aim of this project is to:**
+
+Examine the relation between prophylaxis administration patterns and VTE risk after traumatic injury
+--Hypothesis: early administration patterns will have the strongest effect on VTE risk
+      
+### Methods
+
+**Data sources**
+The data used for this project were obtained from two sources: 1) the HUP trauma registry, which collects data on injury characteristics, injury severity, and complications (including VTE); and 2) Penn Data Store, a Penn supported data warehouse that contains discharge diagnosis codes, laboratory information, and medication administration data. VTE events were identified via query of the trauma registry and query of ICD-9 discharge diagnosis codes. All events identified in this step were validated with manual chart review. Validated events required radiographic confirmation of the VTE event in the electronic medial record. The dataset for the current analysis was previously constructed for other study aims using Stata. The steps required for construction of the dataset included: cleaning trauma registry file; cleaning PDS data files (labs, anticoagulation exposure, determination of enoxaparin prophylaxis exposure and missed dose metrics); merging registry and PDS files; outcome validation.  
+
+```{r}
+#Let's download the dataset file from Github
+library(RCurl)
+library(dplyr)
+library(ggplot2)
+library(lmtest)
+
+final_project.url <- getURL("https://raw.githubusercontent.com/tmiano81/final_project/master/vteMiss_final.csv")
+vte <- read.csv(text = final_project.url, header=TRUE)
+
+str(vte)
+```
+
+####The data dictionary for this dataset can be found [here](https://github.com/tmiano81/final_project)
+
+**Using the data dictionary definitions, I will create a new dataframe with appropriate factor variables for analysis**
+```{r}
+vte2 <- vte %>%      #Create new dataframe with new factor variables for analysis
+  mutate(pVte = factor(pVte, levels=c(0, 1), labels=c("no", "yes"))) %>%
+  mutate(scd = factor(scd, levels=c(0, 1), labels=c("no", "yes"))) %>%
+  mutate(tbi = factor(tbi, levels=c(0, 1), labels=c("no", "yes"))) %>%
+  mutate(a_vent = factor(a_vent, levels=c(0, 1), labels=c("no", "yes"))) %>%
+  mutate(aBlood = factor(aBlood, levels=c(0, 1), labels=c("no", "yes"))) %>%
+  mutate(or24 = factor(or24, levels=c(0, 1), labels=c("no", "yes"))) %>%
+  mutate(femur = factor(femur, levels=c(0, 1), labels=c("no", "yes"))) %>%
+  mutate(pelvis = factor(pelvis, levels=c(0, 1), labels=c("no", "yes"))) %>%
+  mutate(spine = factor(spine, levels=c(0, 1), labels=c("no", "yes"))) %>%
+  mutate(lungContusion = factor(lungContusion, levels=c(0, 1), labels=c("no", "yes"))) %>%
+  mutate(bleed = factor(bleed, levels=c(0, 1), labels=c("no", "yes"))) %>%
+  mutate(vein = factor(vein, levels=c(0, 1), labels=c("no", "yes"))) %>%
+  mutate(artery = factor(artery, levels=c(0, 1), labels=c("no", "yes"))) %>%
+  mutate(chronic = factor(chronic, levels=c(1, 0), labels=c("no", "yes"))) %>% 
+  mutate(icu = factor(icu, levels=c(0, 1), labels=c("no", "yes"))) %>%
+  mutate(sex = factor(sex, levels=c(0, 1), labels=c("female", "male"))) %>%
+  mutate(race = factor(race, levels=c(1, 2, 3, 4), labels=c("white", "black", "asian", "other"))) 
+  
+##Now, lets count missing values##
+sapply(vte2, function(x) length(x[is.na(x)]))
+
+##Keep complete cases for analysis
+vte2<-vte2[complete.cases(vte2), ]
+
+#The dataset is now ready for the main analysis
+
+```
+
+**Study Design and population**
+This is a retrospective cohort study of patients admitted to the Hospital of the University of Pennsylvania from January 2004 to October 2014 within 24 hours of their injury. Additionally, patients must have been at least 18 years of age, remained alive and in the hospital for at least 24 hours, and received at least 24 hours of thromboprophylaxis with the regimen enoxaparin 30 mg subcutaneously every 12 hours. Patients were excluded if they received any other type of pharmacologic thromboprophylaxis, if they received treatment doses of anticoagulation for any indication other than treatment of incident venous thromboembolism, if they were being treated for active VTE upon admission, or if they were diagnosed with new VTE within 24 hours of admission.
+
+
+**Primary Exposure variable: non-administration of VTE prophylaxis (i.e. missed doses)**
+The key variable that will be explored in this analysis is the duration of time during which prophylaxis was not administered during hospitalziation. The specific metrics used to quantify this "non-administration" include:
+
+**1) Cumulative percentage of doses missed-** defined as the cumulative number of missed doses / cumulative     number of expected doses. Because enoxaparin is given every 12 hours, the expected number of doses was      defined as 2 x (hospital length of stay).   
+
+**2) Early missed doses-** the cumulative percentage of missed doses during the first 4 days of a prophylaxis course. 
+
+**3) Longest gap between doses-** defined as the longest duration of time in hours between consecutive doses. 
+
+**4) Time to first dose (i.e. delay of initiation)-** defined as the duration of time in hours from hospital admission to initiation of the first prophylaxis dose. 
+
+**5) Early discontinuation-** defined as the duration of time in hours from the last dose to the end of follow-up. 
+    
+**Outcome definition and follow-up**
+The primary outcome is the incidence of VTE, defined as the composite of pulmonary embolism and lower extremity deep venous thrombosis. Patients will enter the cohort after the initial 24 hours of hospitalization and will contribute person time until one of the following: occurence of VTE, hospital discharge, or death. 
+
+**Potential confounders**
+The dataset includes several variables that are risk factors for VTE and thus may be confounding variables. These include age, injury severity score, specific injuries (femur fracture, pelvis fracture, spinal cord injury, major hemorrhage, traumatic brain injury, pulmonary contusion, venous injury, arterial injury), race, gender, admission lab values (creatinine, platelets, hemoglobin), intensive care unit admission, need for operative intervention within 24 hours of admission, vital signs (heart rate, systolic blood pressure), gender, race, and presence of any chronic comorbid illness (heart failure, diabetes mellitus type II, stroke, COPD, chronic kidney disease, chronic liver disease, coronary heart disease, malignancy), need for mechanical ventilation, and need for blood transfusions.
+
+**Data analysis**
+Associations with VTE will be examined in univatiate analysis with univariate logistic regression. Variables with univariate associations <=0.05 will be included in a multivariable logistic regression model. Multivariable models will be reduced using backwards stebwise selection, with variables that retain signficance at the 0.05 level retained in the model
+
+
+### Results
+
+```{r}
+##Let's see what the incidence of the primary outcome is in the population
+r<-xtabs(~vte2$pVte)
+r
+prop.table(r) 
+
+#############################################
+##Lets explore the primary exposure variables
+#############################################
+
+###############Delay########################
+qplot(delay, data=vte2, geom="histogram", col=I("blue"), fill=I("blue"),alpha=I(0.75), binwidth =.5)
+##Distribution is very skewed
+
+#Log transform to better approximate normal distribution
+vte2 <- vte2 %>%      
+  mutate(lnDelay = log(delay))
+
+#transformed variable has more normal distribution
+qplot(lnDelay, data=vte2, geom="histogram", col=I("blue"), fill=I("blue"),alpha=I(0.75), binwidth =.25)
+
+#In addition, create categorical version of the variable
+vte2$dCat <- cut(vte2$delay, breaks=c(0, 1, 2, 3, Inf), labels=c("< 1 day", "1-2 days", "2-3 days", ">3 days"))
+
+#Let's check our work, by looking at the values at each level of the categorical variable
+vte2 %>%
+  group_by(dCat) %>%
+  summarise(
+    min_delay = min(delay),
+    avg_delay = mean(delay),
+    max_delay = max(delay),
+    num = n())
+
+###As you will see in the following analyses, the values for remaining exposure variables take on a limited range of values and thus are not really continuous in nature. I will also convert these to categorical variables. 
+
+##################percentEarly###################
+qplot(percentEarly, data=vte2, geom="histogram", col=I("blue"), fill=I("blue"),alpha=I(0.75), binwidth =2.5)
+#very skewed distribution, with the majority of values being zero. Doesn't make sense to model this as continuous.
+
+#Create categorical variable
+vte2$earlyMiss <- cut(vte2$percentEarly, breaks=c(-1, 1, 25, Inf), labels=c("Zero", "1-25 %", ">25 %"))
+
+#Let's check our work, by looking at the values at each level of the categorical variable
+vte2 %>%
+  group_by(earlyMiss) %>%
+  summarise(
+    min = min(percentEarly),
+    avg = mean(percentEarly),
+    max = max(percentEarly),
+    num = n())
+
+##############percentTotal###############
+qplot(percentTotal, data=vte2, geom="histogram", col=I("blue"), fill=I("blue"),alpha=I(0.75), binwidth =2.5)
+#As with above variable, very skewed with many "zero" values
+
+#Create categorical variable
+vte2$totalMiss <- cut(vte2$percentTotal, breaks=c(-1, 1, 25, Inf), labels=c("Zero", "1-25 %", ">25 %"))
+
+#Let's check our work, by looking at the values at each level of the categorical variable
+vte2 %>%
+  group_by(totalMiss) %>%
+  summarise(
+    min = min(percentTotal),
+    avg = mean(percentTotal),
+    max = max(percentTotal),
+    num = n())
+
+##############Early Discontinuation##################
+qplot(early, data=vte2, geom="histogram", col=I("blue"), fill=I("blue"),alpha=I(0.75), binwidth =1)
+
+#Create categorical variable
+vte2$earlyDc <- cut(vte2$early, breaks=c(-1, 0, 1, Inf), labels=c("None", "1 day early %", ">1 day early %"))
+
+#Let's check our work, be looking at the values at each level of the categorical variable
+vte2 %>%
+  group_by(earlyDc) %>%
+  summarise(
+    min = min(early),
+    avg = mean(early),
+    max = max(early),
+    num = n())
+
+###############Longest Gap#################
+qplot(mLapse, data=vte2, geom="histogram", col=I("blue"), fill=I("blue"),alpha=I(0.75), binwidth =1)
+
+#Create categorical variable
+vte2$lapse <- cut(vte2$mLapse, breaks=c(-1, 24, 48, Inf), labels=c("< 24 hours", "24-48 hours", ">48 hours"))
+
+#Let's check our work, be looking at the values at each level of the categorical variable
+vte2 %>%
+  group_by(lapse) %>%
+  summarise(
+    min = min(mLapse),
+    avg = mean(mLapse),
+    max = max(mLapse),
+    num = n())
+
+####Now, examine associations of exposure variables with outcome#######
+
+###############Delay#################
+##Log transformed version
+glm <- glm(pVte ~ lnDelay, family = binomial(), data=vte2)
+exp(summary(glm)$coeff[-1,1]) #Odds ratio
+summary(glm)$coeff[-1,4] #p-value
+
+##Categorical version
+xtabs(~vte2$pVte+ vte2$dCat)
+glm <- glm(pVte ~ dCat, family = binomial(), data=vte2)
+exp(summary(glm)$coeff[-1,1]) #Odds ratio
+summary(glm)$coeff[-1,4] #p-value
+
+###############percentEarly#################
+xtabs(~vte2$pVte+ vte2$earlyMiss)
+glm <- glm(pVte ~ earlyMiss, family = binomial(), data=vte2)
+exp(summary(glm)$coeff[-1,1]) #Odds ratio
+summary(glm)$coeff[-1,4] #p-value
+
+###############percentTotal#################
+xtabs(~vte2$pVte+ vte2$totalMiss)
+glm <- glm(pVte ~ totalMiss, family = binomial(), data=vte2)
+exp(summary(glm)$coeff[-1,1]) #Odds ratio
+summary(glm)$coeff[-1,4] #p-value
+
+###############earlyDc#################
+xtabs(~vte2$pVte+ vte2$earlyDc)
+glm <- glm(pVte ~ earlyDc, family = binomial(), data=vte2)
+exp(summary(glm)$coeff[-1,1]) #Odds ratio
+summary(glm)$coeff[-1,4] #p-value
+
+###############longest gap#################
+xtabs(~vte2$pVte+ vte2$lapse)
+glm <- glm(pVte ~ lapse, family = binomial(), data=vte2)
+exp(summary(glm)$coeff[-1,1]) #Odds ratio
+summary(glm)$coeff[-1,4] #p-value
+
+#In univariate analysis, the following exposure variables were significantly associated with VTE risk:
+#Time to initiation (delay); and cumulative percentage of doses missed in the early time period of prophylaxis (earlyMiss)
+
+#######################################################
+##Now, lets examine the potential confounding variables. 
+#######################################################
+
+##########Start with factor variables##############
+
+#scd--mechanical prophylaxis
+xtabs(~vte2$pVte+ vte2$scd)
+
+glm <- glm(pVte ~ scd, family = binomial(), data=vte2)
+exp(summary(glm)$coeff[-1,1]) #Odds ratio
+summary(glm)$coeff[-1,4] #p-value
+
+#tbi--traumatic brain injury
+xtabs(~vte2$pVte+ vte2$tbi)
+
+glm <- glm(pVte ~ tbi, family = binomial(), data=vte2)
+exp(summary(glm)$coeff[-1,1]) #Odds ratio
+summary(glm)$coeff[-1,4] #p-value
+
+#a_vent--mechanical ventilation
+xtabs(~vte2$pVte+ vte2$a_vent)
+
+glm <- glm(pVte ~ a_vent, family = binomial(), data=vte2)
+exp(summary(glm)$coeff[-1,1]) #Odds ratio
+summary(glm)$coeff[-1,4] #p-value
+
+#aBlood--blood transfusion
+xtabs(~vte2$pVte+ vte2$aBlood)
+
+glm <- glm(pVte ~ aBlood, family = binomial(), data=vte2)
+exp(summary(glm)$coeff[-1,1]) #Odds ratio
+summary(glm)$coeff[-1,4] #p-value
+
+#or24--mechanical prophylaxis
+xtabs(~vte2$pVte+ vte2$or24)
+
+glm <- glm(pVte ~ or24, family = binomial(), data=vte2)
+exp(summary(glm)$coeff[-1,1]) #Odds ratio
+summary(glm)$coeff[-1,4] #p-value
+
+#femur--femur fracture
+xtabs(~vte2$pVte+ vte2$femur)
+
+glm <- glm(pVte ~ femur, family = binomial(), data=vte2)
+exp(summary(glm)$coeff[-1,1]) #Odds ratio
+summary(glm)$coeff[-1,4] #p-value
+
+#pelvis--pelvis fracture
+xtabs(~vte2$pVte+ vte2$pelvis)
+
+glm <- glm(pVte ~ pelvis, family = binomial(), data=vte2)
+exp(summary(glm)$coeff[-1,1]) #Odds ratio
+summary(glm)$coeff[-1,4] #p-value
+
+#spine--spinal cord injury
+xtabs(~vte2$pVte+ vte2$spine)
+
+glm <- glm(pVte ~ spine, family = binomial(), data=vte2)
+exp(summary(glm)$coeff[-1,1]) #Odds ratio
+summary(glm)$coeff[-1,4] #p-value
+
+#lungContusion--pulmonary contusions
+xtabs(~vte2$pVte+ vte2$lungContusion)
+
+glm <- glm(pVte ~ lungContusion, family = binomial(), data=vte2)
+exp(summary(glm)$coeff[-1,1]) #Odds ratio
+summary(glm)$coeff[-1,4] #p-value
+
+#bleed--injury with major hemorrhage
+xtabs(~vte2$pVte+ vte2$bleed)
+
+glm <- glm(pVte ~ bleed, family = binomial(), data=vte2)
+exp(summary(glm)$coeff[-1,1]) #Odds ratio
+summary(glm)$coeff[-1,4] #p-value
+
+#vein--injury to vein
+xtabs(~vte2$pVte+ vte2$vein)
+
+glm <- glm(pVte ~ vein, family = binomial(), data=vte2)
+exp(summary(glm)$coeff[-1,1]) #Odds ratio
+summary(glm)$coeff[-1,4] #p-value
+
+#artery--arterial injury
+xtabs(~vte2$pVte+ vte2$artery)
+
+glm <- glm(pVte ~ artery, family = binomial(), data=vte2)
+exp(summary(glm)$coeff[-1,1]) #Odds ratio
+summary(glm)$coeff[-1,4] #p-value
+
+#chronic--any chronic comorbid illness
+xtabs(~vte2$pVte+ vte2$chronic)
+
+glm <- glm(pVte ~ chronic, family = binomial(), data=vte2)
+exp(summary(glm)$coeff[-1,1]) #Odds ratio
+summary(glm)$coeff[-1,4] #p-value
+
+#icu--admission to the intensive care unit
+xtabs(~vte2$pVte+ vte2$icu)
+
+glm <- glm(pVte ~ icu, family = binomial(), data=vte2)
+exp(summary(glm)$coeff[-1,1]) #Odds ratio
+summary(glm)$coeff[-1,4] #p-value
+
+#race--
+xtabs(~vte2$pVte+ vte2$race)
+
+glm <- glm(pVte ~ race, family = binomial(), data=vte2)
+exp(summary(glm)$coeff[-1,1]) #Odds ratio
+summary(glm)$coeff[-1,4] #p-value
+
+#sex--male vs. female
+xtabs(~vte2$pVte+ vte2$sex)
+
+glm <- glm(pVte ~ sex, family = binomial(), data=vte2)
+exp(summary(glm)$coeff[-1,1]) #Odds ratio
+summary(glm)$coeff[-1,4] #p-value
+
+##############Continuous variables#############
+
+#age
+vte2 %>%
+  filter(!is.na(age)) %>%
+  group_by(pVte) %>%
+  summarise(mean_age = mean(age), sd_age = sd(age))
+ggplot(data=vte2, aes(pVte, age)) + geom_boxplot() 
+
+glm <- glm(pVte ~ age, family = binomial(), data=vte2)
+exp(summary(glm)$coeff[-1,1]) #Odds ratio
+summary(glm)$coeff[-1,4] #p-value
+
+#iss--injury severity score
+vte2 %>%
+  filter(!is.na(iss)) %>%
+  group_by(pVte) %>%
+  summarise(mean_iss = mean(iss), sd_iss = sd(iss))
+ggplot(data=vte2, aes(pVte, iss)) + geom_boxplot() 
+
+glm <- glm(pVte ~ iss, family = binomial(), data=vte2)
+exp(summary(glm)$coeff[-1,1]) #Odds ratio
+summary(glm)$coeff[-1,4] #p-value
+
+#hr--heart rate
+vte2 %>%
+  filter(!is.na(hr)) %>%
+  group_by(pVte) %>%
+  summarise(mean_hr = mean(hr), sd_iss = sd(hr))
+ggplot(data=vte2, aes(pVte, hr)) + geom_boxplot() 
+
+glm <- glm(pVte ~ hr, family = binomial(), data=vte2)
+exp(summary(glm)$coeff[-1,1]) #Odds ratio
+summary(glm)$coeff[-1,4] #p-value
+
+#sbp--systolic blood pressure
+vte2 %>%
+  filter(!is.na(sbp)) %>%
+  group_by(pVte) %>%
+  summarise(mean_sbp = mean(sbp), sd_sbp = sd(sbp))
+ggplot(data=vte2, aes(pVte, sbp)) + geom_boxplot() 
+
+glm <- glm(pVte ~ sbp, family = binomial(), data=vte2)
+exp(summary(glm)$coeff[-1,1]) #Odds ratio
+summary(glm)$coeff[-1,4] #p-value
+
+#hemoglobin--
+vte2 %>%
+  filter(!is.na(hemoglobin)) %>%
+  group_by(pVte) %>%
+  summarise(mean_sbp = mean(hemoglobin), sd_sbp = sd(hemoglobin))
+ggplot(data=vte2, aes(pVte, hemoglobin)) + geom_boxplot() 
+
+glm <- glm(pVte ~ hemoglobin, family = binomial(), data=vte2)
+exp(summary(glm)$coeff[-1,1]) #Odds ratio
+summary(glm)$coeff[-1,4] #p-value
+
+#platelets--
+vte2 %>%
+  filter(!is.na(platelets)) %>%
+  group_by(pVte) %>%
+  summarise(mean_platelets = mean(platelets), sd_platelets = sd(platelets))
+ggplot(data=vte2, aes(pVte, platelets)) + geom_boxplot() 
+
+glm <- glm(pVte ~ platelets, family = binomial(), data=vte2)
+exp(summary(glm)$coeff[-1,1]) #Odds ratio
+summary(glm)$coeff[-1,4] #p-value
+
+#creatinine--
+vte2 %>%
+  filter(!is.na(creatinine)) %>%
+  group_by(pVte) %>%
+  summarise(mean_creatinine = mean(creatinine), sd_creatinine = sd(creatinine))
+ggplot(data=vte2, aes(pVte, creatinine)) + geom_boxplot() 
+
+glm <- glm(pVte ~ creatinine, family = binomial(), data=vte2)
+exp(summary(glm)$coeff[-1,1]) #Odds ratio
+summary(glm)$coeff[-1,4] #p-value
+
+#Potential confounding variables associated with outcome in univariate analysis include:
+#a_vent, aBlood, or24, pelvis, femur, lungContusion, bleed, vein, artery, icu
+#race, age, iss, heart rate, systolic blood pressure, hemoglobin, platelets
+
+#############################################
+#Multivariable models
+#############################################
+
+#Start with full model
+glm <- glm(pVte ~ platelets + hemoglobin + sbp + hr + iss + age + race + icu + artery + vein + bleed + lungContusion + pelvis + femur + or24 + aBlood + a_vent + earlyMiss + dCat, family = binomial(), data=vte2)
+summary(glm)
+
+#remove variables in stepwise fashion, beginning with least signficant variables (i.e. highest p-value)
+
+#remove or24
+glm <- glm(pVte ~ platelets + hemoglobin + sbp + hr + iss + age + race + icu + artery + vein + bleed + lungContusion + pelvis + femur + aBlood + a_vent + earlyMiss + dCat, family = binomial(), data=vte2)
+summary(glm)
+
+#remove race
+glm <- glm(pVte ~ platelets + hemoglobin + sbp + hr + iss + age + icu + artery + vein + bleed + lungContusion + pelvis + femur + aBlood + a_vent + earlyMiss + dCat, family = binomial(), data=vte2)
+summary(glm)
+
+#remove SBP
+glm <- glm(pVte ~ platelets + hemoglobin + hr + iss + age + icu + artery + vein + bleed + lungContusion + pelvis + femur + aBlood + a_vent + earlyMiss + dCat, family = binomial(), data=vte2)
+summary(glm)
+
+#remove HR
+glm <- glm(pVte ~ platelets + hemoglobin + iss + age + icu + artery + vein + bleed + lungContusion + pelvis + femur + aBlood + a_vent + earlyMiss + dCat, family = binomial(), data=vte2)
+summary(glm)
+
+#remove lungContusion
+glm <- glm(pVte ~ platelets + hemoglobin + iss + age + icu + artery + vein + bleed + pelvis + femur + aBlood + a_vent + earlyMiss + dCat, family = binomial(), data=vte2)
+summary(glm)
+
+#remove iss
+glm <- glm(pVte ~ platelets + hemoglobin + age + icu + artery + vein + bleed + pelvis + femur + aBlood + a_vent + earlyMiss + dCat, family = binomial(), data=vte2)
+summary(glm)
+
+#remove artery
+glm <- glm(pVte ~ platelets + hemoglobin + age + icu + vein + bleed + pelvis + femur + aBlood + a_vent + earlyMiss + dCat, family = binomial(), data=vte2)
+summary(glm)
+
+#remove aBlood
+glm <- glm(pVte ~ platelets + hemoglobin + age + icu + vein + bleed + pelvis + femur + a_vent + earlyMiss + dCat, family = binomial(), data=vte2)
+summary(glm)
+
+#remove bleed
+glm <- glm(pVte ~ platelets + hemoglobin + age + icu + vein + pelvis + femur + a_vent + earlyMiss + dCat, family = binomial(), data=vte2)
+summary(glm)
+
+#remove pelvis
+glm <- glm(pVte ~ platelets + hemoglobin + age + icu + vein + femur + a_vent + earlyMiss + dCat, family = binomial(), data=vte2)
+summary(glm)
+
+#remove a_vent
+glm <- glm(pVte ~ platelets + hemoglobin + age + icu + vein + femur + earlyMiss + dCat, family = binomial(), data=vte2)
+summary(glm)
+
+#test parameters for the early miss variable
+glm1 <- glm(pVte ~ platelets + hemoglobin + age + icu + vein + femur + earlyMiss + dCat, family = binomial(), data=vte2)
+glm2 <- glm(pVte ~ platelets + hemoglobin + age + icu + vein + femur + dCat, family = binomial(), data=vte2)
+lrtest(glm1, glm2)
+##Early miss variable signficant at 0.05 level
+
+############################################
+###We have arrived at the final model###
+###########################################
+summary(glm1)
+exp(summary(glm1)$coeff[-1,1]) #Odds ratio
+
+##Re-run model, using the log transformed version of the delay variable
+glm <- glm(pVte ~ platelets + hemoglobin + age + icu + vein + femur + earlyMiss + lnDelay, family = binomial(), data=vte2)
+glm2 <- glm(pVte ~ platelets + hemoglobin + age + icu + vein + femur + lnDelay, family = binomial(), data=vte2)
+lrtest(glm, glm2)
+summary(glm)
+exp(summary(glm)$coeff[-1,1]) #Odds ratio
+##Results are similar using the log transformed delay variable
+
+```
+
+###Discussion
+VTE continues to be an important complication after traumatic injury. Although prophylaxis with low molecular weight heparin agents such as enoxaparin is effective, the rate of VTE remains unacceptably high. Understanding factors that lead to prophylaxis failure is thus of great importance. In this study, we examined the impact of various prophylaxis administration patterns on VTE risk and observed that the time to initiation was a major factor determining VTE risk. In addition, failing to administer scheduled doses was also a risk factor, but only during the early time period after injury. Together, these data suggest that prophylaxis exposure is most important during the early stages of recovery from injury. Importantly, these risk factors are potentialy modifiable. Future research should focus on elucidating the reasons for delayed administration. These data could inform the design of clinical decision support tools that facilitate timely prophylaxis administration. 
+
+###References
+
+1.	Centers for Disease Control and Prevention: Injury and Violence statistics. Accessed September 9th, 2013. Available at: http://www.cdc.gov/injury/overview/data.html 
+
+2.	National Trauma Databank Annual Report. Accessed August 17, 2013. Available at: http://www.facs.org/trauma/ntdb/pdf/ntdb-annual-report-2012.pdf
+
+3.	Acosta JA, Yang JC, Winchell RJ, Simons RK, Fortlage DA, Hollingsworth-Fridlund P, Hoyt DB. Lethal injuries and time to death in a level I trauma center. J Am Coll Surg. 1998; 186: 528-33. PMID: 9583692
+
+4.	Gould MK, Garcia DA, Wren SM, Karanicolas PJ, Arcelus JI, Heit JA, Samama CM. Prevention of VTE in Nonorthopedic Surgical Patients: Antithrombotic Therapy and Prevention of Thrombosis, 9th ed: American College of Chest Physicians Evidence-Based Clinical Practice Guidelines. CHEST 2012; 141(Suppl):e227S–e277S. PMID: 22315263 
+
+5.	Rogers FB, Cipolle MD, Velmahos G, Rozycki G, Luchette FA. Practice management guidelines for the prevention of venous thromboembolism in trauma patients: the EAST practice management guidelines work group. J Trauma. 2002; 53: 142-64. PMID: 12131409 
+
+6.	Velmahos GC, Kern J, Chan LS, Oder D, Murray JA, Shekelle P. Prevention of venous thromboembolism after injury: an evidence-based report--part I: analysis of risk factors and evaluation of the role of vena caval filters. J Trauma. 2000; 49: 132-8. PMID: 10912869
+
+7.	Barrera LM, Perel P, Ker K, Cirocchi R, Farinella E, Morales Uribe CH. Cochrane Database Syst Rev. 2013; 3: CD008303. doi: 10.1002/14651858.CD008303.pub2. PMID: 23543562
+
